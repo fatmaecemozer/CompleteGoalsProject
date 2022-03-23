@@ -1,0 +1,189 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-nonprod-claim
+  namespace: nonprod
+  labels:
+    tier: nonprod
+    app: db
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: php-nonprod-claim
+  namespace: nonprod
+  labels:
+    tier: nonprod
+    app: php
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment
+  namespace: nonprod
+  labels:
+    tier: nonprod
+    app: db
+spec:
+  selector:
+    matchLabels:
+      tier: nonprod
+      app: db
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        tier: nonprod
+        app: db
+    spec:
+      containers:
+      - name: mysql-nonprod
+        image: ecemozer/complete-goals-project-db:latest
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-nonprod-secret
+              key: MYSQL_ROOT_PASSWORD
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-nonprod-secret
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-nonprod-secret
+              key: MYSQL_PASSWORD
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-nonprod-secret
+              key: MYSQL_DATABASE      
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "250m"
+        ports:
+          - containerPort: 3306
+            name: mysql-nonprod-p
+        volumeMounts:
+          - name: mysql-nonprod-pv
+            mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-nonprod-pv
+          persistentVolumeClaim:
+            claimName: mysql-nonprod-claim
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-deployment
+  namespace: nonprod
+  labels:
+    tier: nonprod
+    app: php
+spec:
+  selector:
+    matchLabels:
+      tier: nonprod
+      app: php
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        tier: nonprod
+        app: php
+    spec:
+      containers:
+      - image: ecemozer/complete-goals-project-web:latest
+        name: php-nonprod
+        env:
+        - name: PHP_DB_HOST
+          value: mysql-nonprod-svc
+        - name: PHP_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-nonprod-secret
+              key: MYSQL_USER
+        - name: PHP_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-nonprod-secret
+              key: MYSQL_PASSWORD
+        - name: PHP_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: mysql-nonprod-secret
+              key: MYSQL_DATABASE
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "250m"
+        ports:
+        - containerPort: 80
+          name: php-nonprod-p
+        volumeMounts:
+        - name: php-nonprod-pv
+          mountPath: /var/www/html
+      volumes:
+      - name: php-nonprod-pv
+        persistentVolumeClaim:
+          claimName: php-nonprod-claim
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - db
+            topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-nonprod-svc
+  namespace: nonprod
+  labels:
+    tier: nonprod
+spec:
+  selector:
+    tier: nonprod
+    app: db
+  ports:
+  - port: 3306
+    targetPort: 3306
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-nonprod-svc
+  namespace: nonprod
+  labels:
+    tier: nonprod
+    app: php
+spec:
+  selector:
+    tier: nonprod
+    app: php
+  ports:
+  - port: 80
+    targetPort: 80
